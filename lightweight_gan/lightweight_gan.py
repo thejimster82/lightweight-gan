@@ -34,7 +34,9 @@ from adabelief_pytorch import AdaBelief
 
 use_cpu = False
 if not torch.cuda.is_available():
-    print("You do not have an Nvidia GPU with CUDA installed, using CPU instead.")
+    print(
+        "You do not have an Nvidia GPU with CUDA installed, using CPU instead."
+    )
     use_cpu = True
 
 # constants
@@ -90,7 +92,8 @@ def raise_if_nan(t):
 def gradient_accumulate_contexts(gradient_accumulate_every, is_ddp, ddps):
     if is_ddp:
         num_no_syncs = gradient_accumulate_every - 1
-        head = [combine_contexts(map(lambda ddp: ddp.no_sync, ddps))] * num_no_syncs
+        head = [combine_contexts(map(lambda ddp: ddp.no_sync, ddps))
+                ] * num_no_syncs
         tail = [null_context]
         contexts = head + tail
     else:
@@ -102,7 +105,8 @@ def gradient_accumulate_contexts(gradient_accumulate_every, is_ddp, ddps):
 
 
 def evaluate_in_chunks(max_batch_size, model, *args):
-    split_args = list(zip(*list(map(lambda x: x.split(max_batch_size, dim=0), args))))
+    split_args = list(
+        zip(*list(map(lambda x: x.split(max_batch_size, dim=0), args))))
     chunked_outputs = [model(*i) for i in split_args]
     if len(chunked_outputs) == 1:
         return chunked_outputs[0]
@@ -115,8 +119,7 @@ def slerp(val, low, high):
     omega = torch.acos((low_norm * high_norm).sum(1))
     so = torch.sin(omega)
     res = (torch.sin((1.0 - val) * omega) / so).unsqueeze(1) * low + (
-        torch.sin(val * omega) / so
-    ).unsqueeze(1) * high
+        torch.sin(val * omega) / so).unsqueeze(1) * high
     return res
 
 
@@ -142,19 +145,18 @@ def hinge_loss(real, fake):
 
 def dual_contrastive_loss(real_logits, fake_logits):
     device = real_logits.device
-    real_logits, fake_logits = map(
-        lambda t: rearrange(t, "... -> (...)"), (real_logits, fake_logits)
-    )
+    real_logits, fake_logits = map(lambda t: rearrange(t, "... -> (...)"),
+                                   (real_logits, fake_logits))
 
     def loss_half(t1, t2):
         t1 = rearrange(t1, "i -> i ()")
         t2 = repeat(t2, "j -> i j", i=t1.shape[0])
         t = torch.cat((t1, t2), dim=-1)
         return F.cross_entropy(
-            t, torch.zeros(t1.shape[0], device=device, dtype=torch.long)
-        )
+            t, torch.zeros(t1.shape[0], device=device, dtype=torch.long))
 
-    return loss_half(real_logits, fake_logits) + loss_half(-fake_logits, -real_logits)
+    return loss_half(real_logits, fake_logits) + loss_half(
+        -fake_logits, -real_logits)
 
 
 # helper classes
@@ -244,7 +246,13 @@ class Blur(nn.Module):
 
 
 class DepthWiseConv2d(nn.Module):
-    def __init__(self, dim_in, dim_out, kernel_size, padding=0, stride=1, bias=True):
+    def __init__(self,
+                 dim_in,
+                 dim_out,
+                 kernel_size,
+                 padding=0,
+                 stride=1,
+                 bias=True):
         super().__init__()
         self.net = nn.Sequential(
             nn.Conv2d(
@@ -266,21 +274,25 @@ class DepthWiseConv2d(nn.Module):
 class LinearAttention(nn.Module):
     def __init__(self, dim, dim_head=64, heads=8):
         super().__init__()
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head**-0.5
         self.heads = heads
         inner_dim = dim_head * heads
 
         self.nonlin = nn.GELU()
         self.to_q = nn.Conv2d(dim, inner_dim, 1, bias=False)
-        self.to_kv = DepthWiseConv2d(dim, inner_dim * 2, 3, padding=1, bias=False)
+        self.to_kv = DepthWiseConv2d(dim,
+                                     inner_dim * 2,
+                                     3,
+                                     padding=1,
+                                     bias=False)
         self.to_out = nn.Conv2d(inner_dim, dim, 1)
 
     def forward(self, fmap):
         h, x, y = self.heads, *fmap.shape[-2:]
         q, k, v = (self.to_q(fmap), *self.to_kv(fmap).chunk(2, dim=1))
         q, k, v = map(
-            lambda t: rearrange(t, "b (h c) x y -> (b h) (x y) c", h=h), (q, k, v)
-        )
+            lambda t: rearrange(t, "b (h c) x y -> (b h) (x y) c", h=h),
+            (q, k, v))
 
         q = q.softmax(dim=-1)
         k = k.softmax(dim=-2)
@@ -327,7 +339,8 @@ class expand_greyscale(object):
             color = tensor[:1].expand(3, -1, -1)
             alpha = tensor[1:]
         else:
-            raise Exception(f"image with invalid number of channels given {channels}")
+            raise Exception(
+                f"image with invalid number of channels given {channels}")
 
         if not exists(alpha) and self.transparent:
             alpha = torch.ones(1, *tensor.shape[1:], device=tensor.device)
@@ -342,14 +355,20 @@ def resize_to_minimum_size(min_size, image):
 
 
 class ImageDataset(Dataset):
-    def __init__(
-        self, folder, image_size, transparent=False, greyscale=False, aug_prob=0.0
-    ):
+    def __init__(self,
+                 folder,
+                 image_size,
+                 transparent=False,
+                 greyscale=False,
+                 aug_prob=0.0):
         super().__init__()
         self.folder = folder
         self.image_size = image_size
-        self.paths = [p for ext in EXTS for p in Path(f"{folder}").glob(f"**/*.{ext}")]
-        assert len(self.paths) > 0, f"No images were found in {folder} for training"
+        self.paths = [
+            p for ext in EXTS for p in Path(f"{folder}").glob(f"**/*.{ext}")
+        ]
+        assert len(
+            self.paths) > 0, f"No images were found in {folder} for training"
 
         if transparent:
             num_channels = 4
@@ -366,22 +385,20 @@ class ImageDataset(Dataset):
 
         convert_image_fn = partial(convert_image_to, pillow_mode)
 
-        self.transform = transforms.Compose(
-            [
-                transforms.Lambda(convert_image_fn),
-                transforms.Lambda(partial(resize_to_minimum_size, image_size)),
-                transforms.Resize(image_size),
-                RandomApply(
-                    aug_prob,
-                    transforms.RandomResizedCrop(
-                        image_size, scale=(0.5, 1.0), ratio=(0.98, 1.02)
-                    ),
-                    transforms.CenterCrop(image_size),
-                ),
-                transforms.ToTensor(),
-                transforms.Lambda(expand_fn),
-            ]
-        )
+        self.transform = transforms.Compose([
+            transforms.Lambda(convert_image_fn),
+            transforms.Lambda(partial(resize_to_minimum_size, image_size)),
+            transforms.Resize(image_size),
+            RandomApply(
+                aug_prob,
+                transforms.RandomResizedCrop(image_size,
+                                             scale=(0.5, 1.0),
+                                             ratio=(0.98, 1.02)),
+                transforms.CenterCrop(image_size),
+            ),
+            transforms.ToTensor(),
+            transforms.Lambda(expand_fn),
+        ])
 
     def __len__(self):
         return len(self.paths)
@@ -398,7 +415,7 @@ class ImageDataset(Dataset):
 def random_hflip(tensor, prob):
     if prob > random():
         return tensor
-    return torch.flip(tensor, dims=(3,))
+    return torch.flip(tensor, dims=(3, ))
 
 
 class AugWrapper(nn.Module):
@@ -418,7 +435,6 @@ class AugWrapper(nn.Module):
 
 
 # modifiable global variables
-
 
 norm_class = nn.BatchNorm2d
 
@@ -471,8 +487,9 @@ def get_dct_weights(width, channel, fidx_u, fidx_v):
     for i, (u_x, v_y) in enumerate(zip(fidx_u, fidx_v)):
         for x in range(width):
             for y in range(width):
-                coor_value = get_1d_dct(x, u_x, width) * get_1d_dct(y, v_y, width)
-                dct_weights[:, i * c_part : (i + 1) * c_part, x, y] = coor_value
+                coor_value = get_1d_dct(x, u_x, width) * get_1d_dct(
+                    y, v_y, width)
+                dct_weights[:, i * c_part:(i + 1) * c_part, x, y] = coor_value
 
     return dct_weights
 
@@ -483,9 +500,8 @@ class FCANet(nn.Module):
 
         # in paper, it seems 16 frequencies was ideal
         freq_w, freq_h = ([0] * 8), list(range(8))
-        dct_weights = get_dct_weights(
-            width, chan_in, [*freq_w, *freq_h], [*freq_h, *freq_w]
-        )
+        dct_weights = get_dct_weights(width, chan_in, [*freq_w, *freq_h],
+                                      [*freq_h, *freq_w])
         self.register_buffer("dct_weights", dct_weights)
 
         chan_intermediate = max(3, chan_out // reduction)
@@ -498,9 +514,11 @@ class FCANet(nn.Module):
         )
 
     def forward(self, x):
-        x = reduce(
-            x * self.dct_weights, "b c (h h1) (w w1) -> b c h1 w1", "sum", h1=1, w1=1
-        )
+        x = reduce(x * self.dct_weights,
+                   "b c (h h1) (w w1) -> b c h1 w1",
+                   "sum",
+                   h1=1,
+                   w1=1)
         return self.net(x)
 
 
@@ -541,8 +559,8 @@ class Generator(nn.Module):
 
         num_layers = int(resolution) - 2
         features = list(
-            map(lambda n: (n, 2 ** (fmap_inverse_coef - n)), range(2, num_layers + 2))
-        )
+            map(lambda n: (n, 2**(fmap_inverse_coef - n)),
+                range(2, num_layers + 2)))
         features = list(map(lambda n: (n[0], min(n[1], fmap_max)), features))
         features = list(map(lambda n: 3 if n[0] >= 8 else n[1], features))
         features = [latent_dim, *features]
@@ -555,14 +573,15 @@ class Generator(nn.Module):
 
         self.sle_map = ((3, 7), (4, 8), (5, 9), (6, 10))
         self.sle_map = list(
-            filter(lambda t: t[0] <= resolution and t[1] <= resolution, self.sle_map)
-        )
+            filter(lambda t: t[0] <= resolution and t[1] <= resolution,
+                   self.sle_map))
         self.sle_map = dict(self.sle_map)
 
         self.num_layers_spatial_res = 1
 
-        for (res, (chan_in, chan_out)) in zip(self.res_layers, in_out_features):
-            image_width = 2 ** res
+        for (res, (chan_in, chan_out)) in zip(self.res_layers,
+                                              in_out_features):
+            image_width = 2**res
 
             attn = None
             if image_width in attn_res_layers:
@@ -574,25 +593,24 @@ class Generator(nn.Module):
                 sle_chan_out = self.res_to_feature_map[residual_layer - 1][-1]
 
                 if freq_chan_attn:
-                    sle = FCANet(
-                        chan_in=chan_out, chan_out=sle_chan_out, width=2 ** (res + 1)
-                    )
+                    sle = FCANet(chan_in=chan_out,
+                                 chan_out=sle_chan_out,
+                                 width=2**(res + 1))
                 else:
-                    sle = GlobalContext(chan_in=chan_out, chan_out=sle_chan_out)
+                    sle = GlobalContext(chan_in=chan_out,
+                                        chan_out=sle_chan_out)
 
-            layer = nn.ModuleList(
-                [
-                    nn.Sequential(
-                        upsample(),
-                        Blur(),
-                        nn.Conv2d(chan_in, chan_out * 2, 3, padding=1),
-                        norm_class(chan_out * 2),
-                        nn.GLU(dim=1),
-                    ),
-                    sle,
-                    attn,
-                ]
-            )
+            layer = nn.ModuleList([
+                nn.Sequential(
+                    upsample(),
+                    Blur(),
+                    nn.Conv2d(chan_in, chan_out * 2, 3, padding=1),
+                    norm_class(chan_out * 2),
+                    nn.GLU(dim=1),
+                ),
+                sle,
+                attn,
+            ])
             self.layers.append(layer)
 
         self.out_conv = nn.Conv2d(features[-1], init_channel, 3, padding=1)
@@ -639,9 +657,9 @@ class SimpleDecoder(nn.Module):
         for ind in range(num_upsamples):
             last_layer = ind == (num_upsamples - 1)
             chan_out = chans if not last_layer else final_chan * 2
-            layer = nn.Sequential(
-                upsample(), nn.Conv2d(chans, chan_out, 3, padding=1), nn.GLU(dim=1)
-            )
+            layer = nn.Sequential(upsample(),
+                                  nn.Conv2d(chans, chan_out, 3, padding=1),
+                                  nn.GLU(dim=1))
             self.layers.append(layer)
             chans //= 2
 
@@ -685,8 +703,8 @@ class Discriminator(nn.Module):
 
         non_residual_resolutions = range(min(8, resolution), 2, -1)
         features = list(
-            map(lambda n: (n, 2 ** (fmap_inverse_coef - n)), non_residual_resolutions)
-        )
+            map(lambda n: (n, 2**(fmap_inverse_coef - n)),
+                non_residual_resolutions))
         features = list(map(lambda n: (n[0], min(n[1], fmap_max)), features))
 
         if num_non_residual_layers == 0:
@@ -706,46 +724,42 @@ class Discriminator(nn.Module):
                     Blur(),
                     nn.Conv2d(init_channel, chan_out, 4, stride=2, padding=1),
                     nn.LeakyReLU(0.1),
-                )
-            )
+                ))
 
         self.residual_layers = nn.ModuleList([])
 
-        for (res, ((_, chan_in), (_, chan_out))) in zip(
-            non_residual_resolutions, chan_in_out
-        ):
-            image_width = 2 ** res
+        for (res, ((_, chan_in), (_,
+                                  chan_out))) in zip(non_residual_resolutions,
+                                                     chan_in_out):
+            image_width = 2**res
 
             attn = None
             if image_width in attn_res_layers:
                 attn = PreNorm(chan_in, LinearAttention(chan_in))
 
             self.residual_layers.append(
-                nn.ModuleList(
-                    [
-                        SumBranches(
-                            [
-                                nn.Sequential(
-                                    Blur(),
-                                    nn.Conv2d(
-                                        chan_in, chan_out, 4, stride=2, padding=1
-                                    ),
-                                    nn.LeakyReLU(0.1),
-                                    nn.Conv2d(chan_out, chan_out, 3, padding=1),
-                                    nn.LeakyReLU(0.1),
-                                ),
-                                nn.Sequential(
-                                    Blur(),
-                                    nn.AvgPool2d(2),
-                                    nn.Conv2d(chan_in, chan_out, 1),
-                                    nn.LeakyReLU(0.1),
-                                ),
-                            ]
+                nn.ModuleList([
+                    SumBranches([
+                        nn.Sequential(
+                            Blur(),
+                            nn.Conv2d(chan_in,
+                                      chan_out,
+                                      4,
+                                      stride=2,
+                                      padding=1),
+                            nn.LeakyReLU(0.1),
+                            nn.Conv2d(chan_out, chan_out, 3, padding=1),
+                            nn.LeakyReLU(0.1),
                         ),
-                        attn,
-                    ]
-                )
-            )
+                        nn.Sequential(
+                            Blur(),
+                            nn.AvgPool2d(2),
+                            nn.Conv2d(chan_in, chan_out, 1),
+                            nn.LeakyReLU(0.1),
+                        ),
+                    ]),
+                    attn,
+                ]))
 
         last_chan = features[-1][-1]
         if disc_output_size == 5:
@@ -765,34 +779,30 @@ class Discriminator(nn.Module):
         self.to_shape_disc_out = nn.Sequential(
             nn.Conv2d(init_channel, 64, 3, padding=1),
             Residual(PreNorm(64, LinearAttention(64))),
-            SumBranches(
-                [
-                    nn.Sequential(
-                        Blur(),
-                        nn.Conv2d(64, 32, 4, stride=2, padding=1),
-                        nn.LeakyReLU(0.1),
-                        nn.Conv2d(32, 32, 3, padding=1),
-                        nn.LeakyReLU(0.1),
-                    ),
-                    nn.Sequential(
-                        Blur(),
-                        nn.AvgPool2d(2),
-                        nn.Conv2d(64, 32, 1),
-                        nn.LeakyReLU(0.1),
-                    ),
-                ]
-            ),
+            SumBranches([
+                nn.Sequential(
+                    Blur(),
+                    nn.Conv2d(64, 32, 4, stride=2, padding=1),
+                    nn.LeakyReLU(0.1),
+                    nn.Conv2d(32, 32, 3, padding=1),
+                    nn.LeakyReLU(0.1),
+                ),
+                nn.Sequential(
+                    Blur(),
+                    nn.AvgPool2d(2),
+                    nn.Conv2d(64, 32, 1),
+                    nn.LeakyReLU(0.1),
+                ),
+            ]),
             Residual(PreNorm(32, LinearAttention(32))),
             nn.AdaptiveAvgPool2d((4, 4)),
             nn.Conv2d(32, 1, 4),
         )
 
         self.decoder1 = SimpleDecoder(chan_in=last_chan, chan_out=init_channel)
-        self.decoder2 = (
-            SimpleDecoder(chan_in=features[-2][-1], chan_out=init_channel)
-            if resolution >= 9
-            else None
-        )
+        self.decoder2 = (SimpleDecoder(chan_in=features[-2][-1],
+                                       chan_out=init_channel)
+                         if resolution >= 9 else None)
 
     def forward(self, x, calc_aux_loss=False):
         orig_img = x
@@ -825,24 +835,27 @@ class Discriminator(nn.Module):
         recon_img_8x8 = self.decoder1(layer_8x8)
 
         aux_loss = F.mse_loss(
-            recon_img_8x8, F.interpolate(orig_img, size=recon_img_8x8.shape[2:])
-        )
+            recon_img_8x8, F.interpolate(orig_img,
+                                         size=recon_img_8x8.shape[2:]))
 
         if exists(self.decoder2):
 
             def select_random_quadrant(rand_quadrant, img):
-                return rearrange(img, "b c (m h) (n w) -> (m n) b c h w", m=2, n=2)[
-                    rand_quadrant
-                ]
+                return rearrange(img,
+                                 "b c (m h) (n w) -> (m n) b c h w",
+                                 m=2,
+                                 n=2)[rand_quadrant]
 
-            crop_image_fn = partial(select_random_quadrant, floor(random() * 4))
-            img_part, layer_16x16_part = map(crop_image_fn, (orig_img, layer_16x16))
+            crop_image_fn = partial(select_random_quadrant,
+                                    floor(random() * 4))
+            img_part, layer_16x16_part = map(crop_image_fn,
+                                             (orig_img, layer_16x16))
 
             recon_img_16x16 = self.decoder2(layer_16x16_part)
 
             aux_loss_16x16 = F.mse_loss(
-                recon_img_16x16, F.interpolate(img_part, size=recon_img_16x16.shape[2:])
-            )
+                recon_img_16x16,
+                F.interpolate(img_part, size=recon_img_16x16.shape[2:]))
 
             aux_loss = aux_loss + aux_loss_16x16
 
@@ -901,12 +914,16 @@ class LightweightGAN(nn.Module):
 
         if optimizer == "adam":
             self.G_opt = Adam(self.G.parameters(), lr=lr, betas=(0.5, 0.9))
-            self.D_opt = Adam(self.D.parameters(), lr=lr * ttur_mult, betas=(0.5, 0.9))
+            self.D_opt = Adam(self.D.parameters(),
+                              lr=lr * ttur_mult,
+                              betas=(0.5, 0.9))
         elif optimizer == "adabelief":
-            self.G_opt = AdaBelief(self.G.parameters(), lr=lr, betas=(0.5, 0.9))
-            self.D_opt = AdaBelief(
-                self.D.parameters(), lr=lr * ttur_mult, betas=(0.5, 0.9)
-            )
+            self.G_opt = AdaBelief(self.G.parameters(),
+                                   lr=lr,
+                                   betas=(0.5, 0.9))
+            self.D_opt = AdaBelief(self.D.parameters(),
+                                   lr=lr * ttur_mult,
+                                   betas=(0.5, 0.9))
         else:
             assert False, "No valid optimizer is given"
 
@@ -919,24 +936,23 @@ class LightweightGAN(nn.Module):
 
     def _init_weights(self, m):
         if type(m) in {nn.Conv2d, nn.Linear}:
-            nn.init.kaiming_normal_(
-                m.weight, a=0, mode="fan_in", nonlinearity="leaky_relu"
-            )
+            nn.init.kaiming_normal_(m.weight,
+                                    a=0,
+                                    mode="fan_in",
+                                    nonlinearity="leaky_relu")
 
     def EMA(self):
         def update_moving_average(ma_model, current_model):
-            for current_params, ma_params in zip(
-                current_model.parameters(), ma_model.parameters()
-            ):
+            for current_params, ma_params in zip(current_model.parameters(),
+                                                 ma_model.parameters()):
                 old_weight, up_weight = ma_params.data, current_params.data
-                ma_params.data = self.ema_updater.update_average(old_weight, up_weight)
+                ma_params.data = self.ema_updater.update_average(
+                    old_weight, up_weight)
 
-            for current_buffer, ma_buffer in zip(
-                current_model.buffers(), ma_model.buffers()
-            ):
+            for current_buffer, ma_buffer in zip(current_model.buffers(),
+                                                 ma_model.buffers()):
                 new_buffer_value = self.ema_updater.update_average(
-                    ma_buffer, current_buffer
-                )
+                    ma_buffer, current_buffer)
                 ma_buffer.copy_(new_buffer_value)
 
         update_moving_average(self.GE, self.G)
@@ -1030,9 +1046,8 @@ class Trainer:
         self.transparent = transparent
         self.greyscale = greyscale
 
-        assert (
-            int(self.transparent) + int(self.greyscale)
-        ) < 2, "you can only set either transparency or greyscale"
+        assert (int(self.transparent) + int(self.greyscale)
+                ) < 2, "you can only set either transparency or greyscale"
 
         self.aug_prob = aug_prob
         self.aug_types = aug_types
@@ -1147,11 +1162,8 @@ class Trainer:
         self.config_path.write_text(json.dumps(self.config()))
 
     def load_config(self):
-        config = (
-            self.config()
-            if not self.config_path.exists()
-            else json.loads(self.config_path.read_text())
-        )
+        config = (self.config() if not self.config_path.exists() else
+                  json.loads(self.config_path.read_text()))
         self.image_size = config["image_size"]
         self.transparent = config["transparent"]
         self.syncbatchnorm = config["syncbatchnorm"]
@@ -1177,7 +1189,8 @@ class Trainer:
         }
 
     def set_data_src(self, folder):
-        num_workers = default(self.num_workers, math.ceil(NUM_CORES / self.world_size))
+        num_workers = default(self.num_workers,
+                              math.ceil(NUM_CORES / self.world_size))
         self.dataset = ImageDataset(
             folder,
             self.image_size,
@@ -1185,13 +1198,10 @@ class Trainer:
             greyscale=self.greyscale,
             aug_prob=self.dataset_aug_prob,
         )
-        sampler = (
-            DistributedSampler(
-                self.dataset, rank=self.rank, num_replicas=self.world_size, shuffle=True
-            )
-            if self.is_ddp
-            else None
-        )
+        sampler = (DistributedSampler(self.dataset,
+                                      rank=self.rank,
+                                      num_replicas=self.world_size,
+                                      shuffle=True) if self.is_ddp else None)
         dataloader = DataLoader(
             self.dataset,
             num_workers=num_workers,
@@ -1256,9 +1266,9 @@ class Trainer:
         # train discriminator
 
         self.GAN.D_opt.zero_grad()
-        for i in gradient_accumulate_contexts(
-            self.gradient_accumulate_every, self.is_ddp, ddps=[D_aug, G]
-        ):
+        for i in gradient_accumulate_contexts(self.gradient_accumulate_every,
+                                              self.is_ddp,
+                                              ddps=[D_aug, G]):
             latents = torch.randn(batch_size, latent_dim)
             image_batch = next(self.loader)
             if not use_cpu:
@@ -1270,19 +1280,19 @@ class Trainer:
                 with torch.no_grad():
                     generated_images = G(latents)
 
-                fake_output, fake_output_32x32, _ = D_aug(
-                    generated_images, detach=True, **aug_kwargs
-                )
+                fake_output, fake_output_32x32, _ = D_aug(generated_images,
+                                                          detach=True,
+                                                          **aug_kwargs)
 
                 real_output, real_output_32x32, real_aux_loss = D_aug(
-                    image_batch, calc_aux_loss=True, **aug_kwargs
-                )
+                    image_batch, calc_aux_loss=True, **aug_kwargs)
 
                 real_output_loss = real_output
                 fake_output_loss = fake_output
 
                 divergence = D_loss_fn(real_output_loss, fake_output_loss)
-                divergence_32x32 = D_loss_fn(real_output_32x32, fake_output_32x32)
+                divergence_32x32 = D_loss_fn(real_output_32x32,
+                                             fake_output_32x32)
                 disc_loss = divergence + divergence_32x32
 
                 aux_loss = real_aux_loss
@@ -1290,37 +1300,33 @@ class Trainer:
 
             if apply_gradient_penalty:
                 outputs = [real_output, real_output_32x32]
-                outputs = (
-                    list(map(self.D_scaler.scale, outputs)) if self.amp else outputs
-                )
+                outputs = (list(map(self.D_scaler.scale, outputs))
+                           if self.amp else outputs)
 
                 scaled_gradients = torch_grad(
                     outputs=outputs,
                     inputs=image_batch,
                     grad_outputs=list(
                         map(
-                            lambda t: torch.ones(t.size(), device=image_batch.device),
+                            lambda t: torch.ones(t.size(),
+                                                 device=image_batch.device),
                             outputs,
-                        )
-                    ),
+                        )),
                     create_graph=True,
                     retain_graph=True,
                     only_inputs=True,
                 )[0]
 
-                inv_scale = (
-                    safe_div(1.0, self.D_scaler.get_scale()) if self.amp else 1.0
-                )
+                inv_scale = (safe_div(1.0, self.D_scaler.get_scale())
+                             if self.amp else 1.0)
 
                 if inv_scale != float("inf"):
                     gradients = scaled_gradients * inv_scale
 
                     with amp_context():
                         gradients = gradients.reshape(batch_size, -1)
-                        gp = (
-                            self.gp_weight
-                            * ((gradients.norm(2, dim=1) - 1) ** 2).mean()
-                        )
+                        gp = (self.gp_weight *
+                              ((gradients.norm(2, dim=1) - 1)**2).mean())
 
                         if not torch.isnan(gp):
                             disc_loss = disc_loss + gp
@@ -1334,7 +1340,8 @@ class Trainer:
             total_disc_loss += divergence
 
         self.last_recon_loss = aux_loss.item()
-        self.d_loss = float(total_disc_loss.item() / self.gradient_accumulate_every)
+        self.d_loss = float(total_disc_loss.item() /
+                            self.gradient_accumulate_every)
         self.D_scaler.step(self.GAN.D_opt)
         self.D_scaler.update()
 
@@ -1351,9 +1358,9 @@ class Trainer:
 
         self.GAN.G_opt.zero_grad()
 
-        for i in gradient_accumulate_contexts(
-            self.gradient_accumulate_every, self.is_ddp, ddps=[G, D_aug]
-        ):
+        for i in gradient_accumulate_contexts(self.gradient_accumulate_every,
+                                              self.is_ddp,
+                                              ddps=[G, D_aug]):
             latents = torch.randn(batch_size, latent_dim)
             if not use_cpu:
                 latents = latents.cuda(self.rank)
@@ -1368,13 +1375,10 @@ class Trainer:
                 generated_images = G(latents)
 
                 fake_output, fake_output_32x32, _ = D_aug(
-                    generated_images, **aug_kwargs
-                )
-                real_output, real_output_32x32, _ = (
-                    D_aug(image_batch, **aug_kwargs)
-                    if G_requires_calc_real
-                    else (None, None, None)
-                )
+                    generated_images, **aug_kwargs)
+                real_output, real_output_32x32, _ = (D_aug(
+                    image_batch, **aug_kwargs) if G_requires_calc_real else
+                                                     (None, None, None))
 
                 loss = G_loss_fn(fake_output, real_output)
                 loss_32x32 = G_loss_fn(fake_output_32x32, real_output_32x32)
@@ -1387,7 +1391,8 @@ class Trainer:
             self.G_scaler.scale(gen_loss).backward()
             total_gen_loss += loss
 
-        self.g_loss = float(total_gen_loss.item() / self.gradient_accumulate_every)
+        self.g_loss = float(total_gen_loss.item() /
+                            self.gradient_accumulate_every)
         self.G_scaler.step(self.GAN.G_opt)
         self.G_scaler.update()
 
@@ -1418,25 +1423,23 @@ class Trainer:
                 self.save(self.checkpoint_num)
 
             if self.steps % self.evaluate_every == 0 or (
-                self.steps % 100 == 0 and self.steps < 20000
-            ):
+                    self.steps % 100 == 0 and self.steps < 20000):
                 self.evaluate(
                     floor(self.steps / self.evaluate_every),
                     num_image_tiles=self.num_image_tiles,
                 )
 
-            if (
-                exists(self.calculate_fid_every)
-                and self.steps % self.calculate_fid_every == 0
-                and self.steps != 0
-            ):
-                num_batches = math.ceil(self.calculate_fid_num_images / self.batch_size)
+            if (exists(self.calculate_fid_every)
+                    and self.steps % self.calculate_fid_every == 0
+                    and self.steps != 0):
+                num_batches = math.ceil(self.calculate_fid_num_images /
+                                        self.batch_size)
                 fid = self.calculate_fid(num_batches)
                 self.last_fid = fid
 
                 with open(
-                    str(self.results_dir / self.name / f"fid_scores.txt"), "a"
-                ) as f:
+                        str(self.results_dir / self.name / f"fid_scores.txt"),
+                        "a") as f:
                     f.write(f"{self.steps},{fid}\n")
 
         self.steps += 1
@@ -1452,7 +1455,7 @@ class Trainer:
         image_size = self.GAN.image_size
 
         # latents and noise
-        latents = torch.randn((num_rows ** 2, latent_dim))
+        latents = torch.randn((num_rows**2, latent_dim))
         if not use_cpu:
             latents = latents.cuda(self.rank)
 
@@ -1475,9 +1478,11 @@ class Trainer:
         )
 
     @torch.no_grad()
-    def generate(
-        self, num=0, num_image_tiles=4, checkpoint=None, types=["default", "ema"]
-    ):
+    def generate(self,
+                 num=0,
+                 num_image_tiles=4,
+                 checkpoint=None,
+                 types=["default", "ema"]):
         self.GAN.eval()
 
         latent_dim = self.GAN.latent_dim
@@ -1490,26 +1495,26 @@ class Trainer:
 
         # regular
         if "default" in types:
-            for i in tqdm(
-                range(num_image_tiles), desc="Saving generated default images"
-            ):
+            for i in tqdm(range(num_image_tiles),
+                          desc="Saving generated default images"):
                 latents = torch.randn((1, latent_dim))
                 if not use_cpu:
                     latents = latents.cuda(self.rank)
                 generated_image = self.generate_(self.GAN.G, latents)
-                path = str(self.results_dir / dir_name / f"{str(num)}-{str(i)}.{ext}")
+                path = str(self.results_dir / dir_name /
+                           f"{str(num)}-{str(i)}.{ext}")
                 torchvision.utils.save_image(generated_image[0], path, nrow=1)
 
         # moving averages
         if "ema" in types:
-            for i in tqdm(range(num_image_tiles), desc="Saving generated EMA images"):
+            for i in tqdm(range(num_image_tiles),
+                          desc="Saving generated EMA images"):
                 latents = torch.randn((1, latent_dim))
                 if not use_cpu:
                     latents = latents.cuda(self.rank)
                 generated_image = self.generate_(self.GAN.GE, latents)
-                path = str(
-                    self.results_dir / dir_name / f"{str(num)}-{str(i)}-ema.{ext}"
-                )
+                path = str(self.results_dir / dir_name /
+                           f"{str(num)}-{str(i)}-ema.{ext}")
                 torchvision.utils.save_image(generated_image[0], path, nrow=1)
 
         return dir_full
@@ -1543,22 +1548,20 @@ class Trainer:
             # regular
             if "default" in types:
                 generated_image = self.generate_(self.GAN.G, latents)
-                path = str(
-                    self.results_dir
-                    / dir_name
-                    / f"{str(checkpoint).zfill(zfill_length)}.{ext}"
-                )
-                torchvision.utils.save_image(generated_image, path, nrow=num_images)
+                path = str(self.results_dir / dir_name /
+                           f"{str(checkpoint).zfill(zfill_length)}.{ext}")
+                torchvision.utils.save_image(generated_image,
+                                             path,
+                                             nrow=num_images)
 
             # moving averages
             if "ema" in types:
                 generated_image = self.generate_(self.GAN.GE, latents)
-                path = str(
-                    self.results_dir
-                    / dir_name
-                    / f"{str(checkpoint).zfill(zfill_length)}-ema.{ext}"
-                )
-                torchvision.utils.save_image(generated_image, path, nrow=num_images)
+                path = str(self.results_dir / dir_name /
+                           f"{str(checkpoint).zfill(zfill_length)}-ema.{ext}")
+                torchvision.utils.save_image(generated_image,
+                                             path,
+                                             nrow=num_images)
 
     @torch.no_grad()
     def calculate_fid(self, num_batches):
@@ -1575,13 +1578,13 @@ class Trainer:
             rmtree(real_path, ignore_errors=True)
             os.makedirs(real_path)
 
-            for batch_num in tqdm(
-                range(num_batches), desc="calculating FID - saving reals"
-            ):
+            for batch_num in tqdm(range(num_batches),
+                                  desc="calculating FID - saving reals"):
                 real_batch = next(self.loader)
                 for k, image in enumerate(real_batch.unbind(0)):
                     ind = k + batch_num * self.batch_size
-                    torchvision.utils.save_image(image, real_path / f"{ind}.png")
+                    torchvision.utils.save_image(image,
+                                                 real_path / f"{ind}.png")
 
         # generate a bunch of fake images in results / name / fid_fake
 
@@ -1594,9 +1597,8 @@ class Trainer:
         latent_dim = self.GAN.latent_dim
         image_size = self.GAN.image_size
 
-        for batch_num in tqdm(
-            range(num_batches), desc="calculating FID - saving generated"
-        ):
+        for batch_num in tqdm(range(num_batches),
+                              desc="calculating FID - saving generated"):
             # latents and noise
             latents = torch.randn(self.batch_size, latent_dim)
             if not use_cpu:
@@ -1608,12 +1610,10 @@ class Trainer:
             for j, image in enumerate(generated_images.unbind(0)):
                 ind = j + batch_num * self.batch_size
                 torchvision.utils.save_image(
-                    image, str(fake_path / f"{str(ind)}-ema.{ext}")
-                )
+                    image, str(fake_path / f"{str(ind)}-ema.{ext}"))
 
         return fid_score.calculate_fid_given_paths(
-            [str(real_path), str(fake_path)], 256, latents.device, 2048
-        )
+            [str(real_path), str(fake_path)], 256, latents.device, 2048)
 
     @torch.no_grad()
     def generate_(self, G, style, num_image_tiles=8):
@@ -1621,9 +1621,11 @@ class Trainer:
         return generated_images.clamp_(0.0, 1.0)
 
     @torch.no_grad()
-    def generate_interpolation(
-        self, num=0, num_image_tiles=8, num_steps=100, save_frames=False
-    ):
+    def generate_interpolation(self,
+                               num=0,
+                               num_image_tiles=8,
+                               num_steps=100,
+                               save_frames=False):
         self.GAN.eval()
         ext = self.image_extension
         num_rows = num_image_tiles
@@ -1633,8 +1635,8 @@ class Trainer:
 
         # latents and noise
 
-        latents_low = torch.randn(num_rows ** 2, latent_dim)
-        latents_high = torch.randn(num_rows ** 2, latent_dim)
+        latents_low = torch.randn(num_rows**2, latent_dim)
+        latents_high = torch.randn(num_rows**2, latent_dim)
         if not use_cpu:
             latents_low = latents_low.cuda(self.rank)
             latents_high = latents_high.cuda(self.rank)
@@ -1645,7 +1647,8 @@ class Trainer:
         for ratio in tqdm(ratios):
             interp_latents = slerp(ratio, latents_low, latents_high)
             generated_images = self.generate_(self.GAN.GE, interp_latents)
-            images_grid = torchvision.utils.make_grid(generated_images, nrow=num_rows)
+            images_grid = torchvision.utils.make_grid(generated_images,
+                                                      nrow=num_rows)
             pil_image = transforms.ToPILImage()(images_grid.cpu())
 
             if self.transparent:
@@ -1722,9 +1725,8 @@ class Trainer:
 
         self.steps = name * self.save_every
         if use_cpu:
-            load_data = torch.load(
-                self.model_name(name), map_location=torch.device("cpu")
-            )
+            load_data = torch.load(self.model_name(name),
+                                   map_location=torch.device("cpu"))
         else:
             load_data = torch.load(self.model_name(name))
 
@@ -1745,8 +1747,11 @@ class Trainer:
             self.D_scaler.load_state_dict(load_data["D_scaler"])
 
     def get_checkpoints(self):
-        file_paths = [p for p in Path(self.models_dir / self.name).glob("model_*.pt")]
-        saved_nums = sorted(map(lambda x: int(x.stem.split("_")[1]), file_paths))
+        file_paths = [
+            p for p in Path(self.models_dir / self.name).glob("model_*.pt")
+        ]
+        saved_nums = sorted(
+            map(lambda x: int(x.stem.split("_")[1]), file_paths))
 
         if len(saved_nums) == 0:
             return None
