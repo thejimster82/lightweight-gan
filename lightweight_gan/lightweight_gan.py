@@ -1021,10 +1021,7 @@ class Trainer:
         self.base_dir = base_dir
         self.results_dir = base_dir.joinpath(results_dir)
         self.models_dir = base_dir.joinpath(models_dir)
-        print(base_dir)
-        print(name)
         self.fid_dir = base_dir.joinpath("fid", name)
-
         self.config_path = self.models_dir.joinpath(name, ".config.json")
 
         assert is_power_of_two(
@@ -1378,7 +1375,7 @@ class Trainer:
                     generated_images, **aug_kwargs)
                 real_output, real_output_32x32, _ = (D_aug(
                     image_batch, **aug_kwargs) if G_requires_calc_real else
-                                                     (None, None, None))
+                    (None, None, None))
 
                 loss = G_loss_fn(fake_output, real_output)
                 loss_32x32 = G_loss_fn(fake_output_32x32, real_output_32x32)
